@@ -26,6 +26,7 @@
 static gchar *test_mode = "common";
 static gchar *server_ip = "122.227.23.137";
 static guint server_port = 9494;
+static guint seq = 0;
 
 static void _common_run (void)
 {
@@ -71,9 +72,10 @@ static void _common_run (void)
 
         g_assert (PKTLEN == l);
 
-        g_print ("Common packet from %s:%d\n",
+        g_print ("Common packet from %s:%d:%u\n",
                  inet_ntoa (si_other.sin_addr),
-                 ntohs (si_other.sin_port));
+                 ntohs (si_other.sin_port),
+                 seq++);
 
         g_usleep (10000);
     }
@@ -95,7 +97,7 @@ static void _handle_packet (OrenNCHandler *self,
 
     g_assert (oren_ncbuffer_unread_length (buffer) == PKTLEN);
 
-    g_print ("Oren packet from %s\n", str);
+    g_print ("Oren packet from %s:%u\n", str, seq++);
 
     g_free (str);
 }
