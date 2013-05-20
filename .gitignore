@@ -1,6 +1,7 @@
 client
 server
 *.sdf
+*.opensdf
 *.suo
 ipch/*
 Debug/*
