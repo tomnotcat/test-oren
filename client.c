@@ -1,12 +1,19 @@
 #include <glib.h>
+
+#ifdef G_OS_WIN32
+#include <winsock2.h>
+#else
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <stdio.h>
-#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
+#include <stdio.h>
+#include <string.h>
+
+#include <oren-ncbuffer.h>
 #include <oren-nchandler.h>
 #include <oren-ncreactor.h>
 #include <oren-ncsocket.h>
@@ -16,15 +23,21 @@
 #define PKTLEN 1200
 #define PORT 9494
 
-static gchar *test_mode = NULL;
-static gchar *server_ip = NULL;
-static guint server_port = 0;
+static gchar *test_mode = "common";
+static gchar *server_ip = "122.227.23.137";
+static guint server_port = 9494;
 
 static void _common_run (void)
 {
     struct sockaddr_in si_me, si_other;
     int s, l, slen = sizeof (si_other);
     char buf[BUFLEN] = { 0 };
+
+#ifdef G_OS_WIN32
+    WSADATA wsaData;
+    if (WSAStartup (MAKEWORD(2, 2), &wsaData) != 0)
+        g_error ("WSAStartup");
+#endif
 
     if ((s = socket (AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
         g_error ("socket");
@@ -38,18 +51,22 @@ static void _common_run (void)
 
     si_other.sin_family = AF_INET;
     si_other.sin_port = htons (server_port);
+#ifdef G_OS_WIN32
+    si_other.sin_addr.s_addr = inet_addr (server_ip);
+#else
     if (inet_aton (server_ip, &si_other.sin_addr) == 0)
         g_error ("inet_aton");
+#endif
 
     while (1) {
         if (sendto (s, buf, PKTLEN, 0,
-                    (const struct sockaddr*)&si_other, slen) == -1)
+                    (const struct sockaddr*)&si_other, slen) != PKTLEN)
         {
             g_error ("sendto");
         }
 
         l = recvfrom (s, buf, BUFLEN, 0, (struct sockaddr*)&si_other, &slen);
-        if (l == -1)
+        if (l != PKTLEN)
             g_error ("recvfrom");
 
         g_assert (PKTLEN == l);
@@ -61,7 +78,12 @@ static void _common_run (void)
         g_usleep (10000);
     }
 
+#ifdef G_OS_WIN32
+    closesocket (s);
+    WSACleanup ();
+#else
     close (s);
+#endif
 }
 
 static void _handle_packet (OrenNCHandler *self,

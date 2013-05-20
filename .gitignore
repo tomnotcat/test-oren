@@ -1,2 +1,7 @@
 client
 server
+*.sdf
+*.suo
+ipch/*
+Debug/*
+Release/*
