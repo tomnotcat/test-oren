@@ -17,22 +17,27 @@
 #include <oren-nchandler.h>
 #include <oren-ncreactor.h>
 #include <oren-ncsocket.h>
+#include <oren-nctime.h>
 #include <oren-ncutils.h>
+#include <oren-ratestat.h>
 
 #define BUFLEN 5120
 #define PKTLEN 1200
 #define PORT 9494
+#define STAT_TIME 5000
 
-static gchar *test_mode = "common";
-static gchar *server_ip = "122.227.23.137";
+static gchar *test_mode = "oren";
+static guint test_time = 10;
+static gchar *server_host = "122.227.23.137";
 static guint server_port = 9494;
-static guint seq = 0;
+static OrenRateStat *stat = NULL;
 
 static void _common_run (void)
 {
     struct sockaddr_in si_me, si_other;
     int s, l, slen = sizeof (si_other);
     char buf[BUFLEN] = { 0 };
+    struct timeval tv;
 
 #ifdef G_OS_WIN32
     WSADATA wsaData;
@@ -53,9 +58,9 @@ static void _common_run (void)
     si_other.sin_family = AF_INET;
     si_other.sin_port = htons (server_port);
 #ifdef G_OS_WIN32
-    si_other.sin_addr.s_addr = inet_addr (server_ip);
+    si_other.sin_addr.s_addr = inet_addr (server_host);
 #else
-    if (inet_aton (server_ip, &si_other.sin_addr) == 0)
+    if (inet_aton (server_host, &si_other.sin_addr) == 0)
         g_error ("inet_aton");
 #endif
 
@@ -72,10 +77,13 @@ static void _common_run (void)
 
         g_assert (PKTLEN == l);
 
+        gettimeofday (&tv, NULL);
+        oren_rate_stat_add (stat, &tv, l);
+
         g_print ("Common packet from %s:%d:%u\n",
                  inet_ntoa (si_other.sin_addr),
                  ntohs (si_other.sin_port),
-                 seq++);
+                 oren_rate_stat_get (stat, &tv) / (STAT_TIME / 1000));
 
         g_usleep (10000);
     }
@@ -94,10 +102,16 @@ static void _handle_packet (OrenNCHandler *self,
                             OrenNCBuffer *buffer)
 {
     gchar *str = oren_ncsockaddr_to_string (from);
+    struct timeval tv;
 
     g_assert (oren_ncbuffer_unread_length (buffer) == PKTLEN);
 
-    g_print ("Oren packet from %s:%u\n", str, seq++);
+    gettimeofday (&tv, NULL);
+    oren_rate_stat_add (stat, &tv, oren_ncbuffer_unread_length (buffer));
+
+    g_print ("Oren packet from %s:%u\n",
+             str,
+             oren_rate_stat_get (stat, &tv) / (STAT_TIME / 1000));
 
     g_free (str);
 }
@@ -109,7 +123,7 @@ static void _handle_timer (OrenNCHandler *self,
     gchar buf[PKTLEN];
     OrenNCSockaddr *addr;
 
-    addr = oren_ncsockaddr_new_simple (server_ip, server_port);
+    addr = oren_ncsockaddr_new_simple (server_host, server_port);
     oren_ncsocket_send_to (socket, addr, buf, PKTLEN);
     g_object_unref (addr);
 }
@@ -138,7 +152,7 @@ static void _oren_run (void)
                                      socket,
                                      handler);
     oren_ncreactor_schedule_timer (reactor,
-                                   10,
+                                   test_time,
                                    handler);
     oren_ncreactor_run_loop (reactor, FALSE);
 }
@@ -146,9 +160,10 @@ static void _oren_run (void)
 int main (int argc, char *argv[])
 {
     static GOptionEntry entries[] = {
-        { "test-mode", 'm', 0, G_OPTION_ARG_STRING, &test_mode, "Test mode", NULL },
-        { "server-ip", 'i', 0, G_OPTION_ARG_STRING, &server_ip, "Server IPs", NULL },
-        { "server-port", 'p', 0, G_OPTION_ARG_INT, &server_port, "Server port", NULL },
+        { "mode", 'm', 0, G_OPTION_ARG_STRING, &test_mode, "Test mode", NULL },
+        { "time", 't', 0, G_OPTION_ARG_INT, &test_time, "The timer", NULL },
+        { "host", 'h', 0, G_OPTION_ARG_STRING, &server_host, "Server host", NULL },
+        { "port", 'p', 0, G_OPTION_ARG_INT, &server_port, "Server port", NULL },
         { NULL }
     };
 
@@ -166,6 +181,8 @@ int main (int argc, char *argv[])
     }
 
     g_option_context_free (context);
+
+    stat = oren_rate_stat_new (200, STAT_TIME);
 
     if (strcmp (test_mode, "common") == 0) {
         _common_run ();
